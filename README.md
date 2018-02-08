@@ -1,0 +1,2 @@
+# mgtail
+mongodb capped tail

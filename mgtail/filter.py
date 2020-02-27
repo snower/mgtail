@@ -5,18 +5,17 @@
 import logging
 from tornado import gen
 from tornado.ioloop import IOLoop
-from writer import PullWriter, NotifyWriter
+from .writer import PullWriter
 
 class Filter(object):
     def __init__(self, manager, filter):
         self._origin = filter
         self._manager = manager
-        self._logging = filter.logging
+        self._collection = filter.collection
         self._name = filter.name
         self._exps = self.init_expressions(filter.exps)
         self._fields = filter.fields
         self._formats = self.init_formats(filter.formats)
-        self._notify_url = filter.notify_url
         self._max_queue_size = filter.max_queue_size
         self._expried_time = filter.expried_time
         self._writer = None
@@ -25,8 +24,8 @@ class Filter(object):
         self.init_writer()
 
     @property
-    def logging(self):
-        return self._logging
+    def collection(self):
+        return self._collection
 
     @property
     def name(self):
@@ -53,10 +52,7 @@ class Filter(object):
             self._writer.close()
             self._writer = None
 
-        if self._notify_url.startswith("pull://"):
-            self._writer = PullWriter(self, self._max_queue_size)
-        else:
-            self._writer = NotifyWriter(self._notify_url, self, self._max_queue_size)
+        self._writer = PullWriter(self, self._max_queue_size)
         self.start_timeout()
         return self._writer
 
@@ -68,41 +64,25 @@ class Filter(object):
         logging.info("filter close %s", self._name)
 
     def update(self, filter):
-        require_update_writer = self._notify_url != filter.notify_url
-
         self._origin = filter
-        self._logging = filter.logging
+        self._collection = filter.collection
         self._name = filter.name
         self._exps = self.init_expressions(filter.exps)
         self._fields = filter.fields
         self._formats = self.init_formats(filter.formats)
-        self._notify_url = filter.notify_url
         self._max_queue_size = filter.max_queue_size
         self._expried_time = filter.expried_time
 
-        if require_update_writer:
-            self.init_writer()
-        elif self._writer:
+        if self._writer:
             self._writer.update(self._max_queue_size)
         logging.info("filter update %s", self._name)
 
     def pull_writer(self, seqid, iprot, oprot):
-        if not self._notify_url.startswith("pull://"):
-            future = gen.Future()
-            future.set_result(True)
-            return future
+        future = gen.Future()
+        future.set_result(True)
+        return future
 
-        if not self._writer:
-            self._writer = PullWriter(self, self._max_queue_size)
-
-        if self._timeout:
-            IOLoop.current().remove_timeout(self._timeout)
-            self._timeout = None
-
-        logging.info("writer open %s", self._name)
-        return self._writer.pull(seqid, iprot, oprot)
-
-    def push(self, logging_name, exps, log, exp_results):
+    def push(self, collection_name, exps, log, exp_results):
         if not self._writer:
             return
 

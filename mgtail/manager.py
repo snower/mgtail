@@ -5,11 +5,11 @@
 import logging
 import json
 from tornado.ioloop import IOLoop
-from expression import get_expression
-from format import get_format
-from processor.ttypes import FilterExpression, Filter as ThriftFilter
-from filter import Filter
-import settings
+from .expression import get_expression
+from .format import get_format
+from .server.processor.ttypes import FilterExpression, Filter as ThriftFilter
+from .filter import Filter
+from . import config
 
 class Manager(object):
     _instance = None
@@ -17,7 +17,7 @@ class Manager(object):
     def __init__(self, server):
         self._server = server
         self._filters = {}
-        self._loggings = {}
+        self._collections = {}
         self._expressions = {}
         self._formats = {}
         self._closed = False
@@ -29,11 +29,11 @@ class Manager(object):
     def store_session(self):
         session = {
             "filters": [],
-            "loggings": {},
+            "collections": {},
             "v": 1
         }
 
-        for name, filter in self._filters.iteritems():
+        for name, filter in self._filters.items():
             exps = []
             for exp in filter._origin.exps:
                 exps.append({
@@ -44,7 +44,7 @@ class Manager(object):
                 })
 
             session["filters"].append({
-                "logging": filter._origin.logging,
+                "collection": filter._origin.collection,
                 "name": filter._origin.name,
                 "exps": exps,
                 "fields": filter._origin.fields,
@@ -54,11 +54,11 @@ class Manager(object):
                 "expried_time": filter._origin.expried_time,
             })
 
-        for name, glogging in self._loggings.iteritems():
-            session["loggings"][name] = glogging.store_session()
+        for name, collection in self._collections.items():
+            session["collections"][name] = collection.store_session()
 
         try:
-            with open(settings.SESSION_PATH + "/session.json", "w") as fp:
+            with open(config.get("SESSION_PATH", "/tmp") + "/mgtail.session", "w") as fp:
                 json.dump(session, fp)
         except Exception as e:
             logging.error("store session error %s", e)
@@ -67,11 +67,11 @@ class Manager(object):
 
     def load_session(self):
         try:
-            with open(settings.SESSION_PATH + "/session.json") as fp:
+            with open(config.get("SESSION_PATH", "/tmp") + "/session.json") as fp:
                 session = json.load(fp)
-                for name, glogging_session in session.get("loggings", {}).iteritems():
-                    if name in self._loggings and glogging_session:
-                        self._loggings[name].load_session(glogging_session)
+                for name, collection_session in session.get("collections", {}).items():
+                    if name in self._collections and collection_session:
+                        self._collections[name].load_session(collection_session)
 
                 for filter in session["filters"]:
                     exps = []
@@ -84,20 +84,20 @@ class Manager(object):
             logging.error("load session error %s", e)
 
     def close(self):
-        for name, glogging in self._loggings.iteritems():
-            glogging.stop()
+        for name, collection in self._collections.items():
+            collection.stop()
         self._closed = True
         logging.info("manager close")
 
     def register_filter(self, filter):
         self._filters[filter.name] = filter
-        if filter.logging in self._loggings:
-            self._loggings[filter.logging].register_filter(filter)
+        if filter.collection in self._collections:
+            self._collections[filter.collection].register_filter(filter)
         logging.info("register filter %s", filter.name)
 
     def unregister_filter(self, filter):
-        if filter.logging in self._loggings:
-            self._loggings[filter.logging].unregister_filter(filter)
+        if filter.collection in self._collections:
+            self._collections[filter.collection].unregister_filter(filter)
         if filter.name in self._filters:
             del self._filters[filter.name]
         logging.info("unregister filter %s", filter.name)
@@ -107,14 +107,14 @@ class Manager(object):
             return self._filters[name]
         return None
 
-    def register_logging(self, glogging):
-        self._loggings[glogging.name] = glogging
-        logging.info("register logging %s", glogging.name)
+    def register_collection(self, collection):
+        self._collections[collection.name] = collection
+        logging.info("register collection %s", collection.name)
 
-    def unregister_logging(self, glogging):
-        if glogging.name not in self._loggings:
-            del self._loggings[glogging.name]
-        logging.info("unregister logging %s", glogging.name)
+    def unregister_collection(self, collection):
+        if collection.name not in self._collections:
+            del self._collections[collection.name]
+        logging.info("unregister collection %s", collection.name)
 
     def get_expression(self, name, exp, vtype, value):
         exp_id = (name, exp, vtype, value).__hash__()
@@ -140,6 +140,11 @@ class Manager(object):
         format_instance = format_class(format)
         self._formats[format] = format_instance
         return format_instance
+
+    def start(self):
+        for collection in self._collections:
+            IOLoop.current().add_callback(collection.start)
+        self.start_session_store_timeout()
 
     def start_session_store_timeout(self):
         IOLoop.current().call_later(60, self.on_session_store_timeout)

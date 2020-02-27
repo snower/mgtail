@@ -2,15 +2,13 @@
 # 17/9/13
 # create by: snower
 
-from cStringIO import StringIO
+from io import BytesIO
 from collections import deque
 import json
 import logging
-import traceback
 from tornado import gen
-from common.mgtord.notify import notify
-from processor.GLogcat import pull_result, TMessageType
-from processor.ttypes import Log
+from .server.processor.Mgtail import pull_result, TMessageType
+from .server.processor.ttypes import Log
 
 class Writer(object):
     def __init__(self, filter, max_buffer_size = 64 * 1024 * 1024):
@@ -52,9 +50,9 @@ class PullWriter(Writer):
             llog = self._buffer.popleft()
             self._buffer_size -= len(llog)
 
-        if not isinstance(log, basestring):
+        if not isinstance(log, str):
             log = json.dumps(log, default=str, ensure_ascii=False)
-        log = Log(self._filter.logging, self._filter.name, log)
+        log = Log(self._filter.collection, self._filter.name, log)
         result = pull_result()
         result.success = log
         msg_type = TMessageType.REPLY
@@ -63,7 +61,7 @@ class PullWriter(Writer):
         self._oprot.writeMessageEnd()
 
         log = self._oprot.trans.getvalue()
-        self._oprot.trans = StringIO()
+        self._oprot.trans = BytesIO()
 
         self._buffer.append(log)
         self._buffer_size += len(log)
@@ -86,7 +84,7 @@ class PullWriter(Writer):
         self._result_future = gen.Future()
 
         self._otrans = self._oprot.trans
-        self._oprot.trans = StringIO()
+        self._oprot.trans = BytesIO()
 
         if self._buffer and not self._writing:
             self._writing = True
@@ -117,46 +115,14 @@ class PullWriter(Writer):
                 filter.start_timeout()
             logging.info("writer close %s", filter.name)
 
-    @gen.coroutine
-    def do_write(self):
+    async def do_write(self):
         while self._buffer:
             log = self._buffer.popleft()
             self._buffer_size -= len(log)
             try:
-                yield self._otrans._stream.write(log)
+                await self._otrans._stream.write(log)
             except:
                 self.close(False)
                 break
-
-        self._writing = False
-
-class NotifyWriter(Writer):
-    def __init__(self, notify_url, *args, **kwargs):
-        super(NotifyWriter, self).__init__(*args, **kwargs)
-
-        self._notify_url = notify_url
-        self._writing = False
-
-    def write(self, log):
-        while self._buffer_size > self._max_buffer_size:
-            self._buffer.popleft()
-            self._buffer_size -= 1
-
-        self._buffer.append(log)
-        self._buffer_size += 1
-        if not self._writing:
-            self._writing = True
-            self.do_write()
-
-    @gen.coroutine
-    def do_write(self):
-        while self._buffer:
-            log = self._buffer.popleft()
-            self._buffer_size -= 1
-            try:
-                yield notify(self._notify_url, **log)
-            except Exception as e:
-                logging.error("notify error %s %s %s\n%s", self._notify_url, e, log, traceback.format_exc())
-                continue
 
         self._writing = False

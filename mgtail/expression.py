@@ -38,7 +38,7 @@ class Expression(object):
 
     def get_string_value(self, log):
         value = log.get(self._name, '')
-        if isinstance(value, basestring):
+        if isinstance(value, str):
             return value
 
         try:
@@ -95,14 +95,14 @@ class RegexpExpression(Expression):
     def __init__(self, *args, **kwargs):
         super(RegexpExpression, self).__init__(*args, **kwargs)
 
-        if isinstance(self._value, unicode):
+        if isinstance(self._value, bytes):
             self._value = self._value.encode("utf-8")
         self._value = re.compile(self._value)
         self.get_value = self.get_string_value
 
     def execute(self, log):
         value = self.get_value(log)
-        if isinstance(value, unicode):
+        if isinstance(value, bytes):
             value = value.encode("utf-8")
         if self._value.match(value):
             return True

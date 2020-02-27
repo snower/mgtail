@@ -1,0 +1,11 @@
+# tail of the mongodb caped collection
+
+LOG_FILE=/var/log/funsun.log
+LOG_LEVEL=ERROR
+LOG_FORMAT=
+
+BIND_ADDRESS=127.0.0.1
+PORT=6455
+
+SESSION_PATH=/tmp
+COLLECTIONS=

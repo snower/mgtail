@@ -23,10 +23,10 @@ setup(
     packages=find_packages(),
     zip_safe=False,
     install_requires=[
-        'tornado>=4.5',
-        'thrift==0.11.0',
+        'tornado>=6.0.3',
+        'thrift==0.13.0',
         'torthrift>=0.2.3',
-        'motor>=1.2.1',
+        'motor>=2.1.0',
         'greenlet>=0.4.2',
     ],
     package_data={
